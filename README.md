@@ -1,15 +1,41 @@
 # 大文件上传功能
 
-## `前端`
+## `实现功能`
+
+* [x] 大文件切片
+* [x] 断点续传
+* [x] 秒传
+* [x] 暂停上传
+* [x] 恢复上传
+* [x] 切片进度条
+* [x] 文件进度条 
+
+## `整体思路`
+
+### `前端`
+
+- 核心是利用 `Blob.prototype.slice` 方法，和数组的 slice 方法相似，调用的 slice 方法可以返回`原文件的某个切片`
+- 根据预先设置好的切片最大数量将文件切分为一个个切片，然后借助 http 的可并发性，同时上传多个切片，这样从原本传一个大文件，变成了`同时传多个小的文件切片`，可以大大减少上传时间
+- 由于是并发，传输到服务端的顺序可能会发生变化，所以我们还需要给每个`切片记录顺序`
+
+### `服务端`
+
+- 服务端需要负责接受这些切片，并在接收到所有切片后`合并`切片
+    - `何时合并`切片 前端在每个切片中都携带切片最大数量的信息，当服务端接受到这个数量的切片时自动合并，也可以额外发一个请求主动通知服务端进行切片的合并
+    - `如何合并`切片 使用 nodejs 的 读写流（readStream/writeStream），将所有切片的流传输到最终文件的流里
+
+## `前端部分`
 
 ### 上传基本步骤
 
 ```js
 
 async function handleUpload() {
+        // 校验文件是否选择
         if (!currentFile) {
             return message.error('你尚未选择文件');
         }
+        // 校验文件类型和文件大小是否符合上传标准
         if (!allowUpload(currentFile)) {
             return message.error('上传成功');
         }
@@ -45,9 +71,9 @@ async function handleUpload() {
     }
 ```
 
-#### 文件切片
+#### `文件切片`
 
-- `文件切片并且返回切片列表，列表中每一项增加size属性`
+> 文件切片并且返回切片列表，列表中每一项增加`size`属性
 
 
 ```js
@@ -76,9 +102,9 @@ function createChunks(file:File): Part[] {
 }
 ```
 
-#### 计算文件hash值
+#### `计算文件hash值`
 
-- `秒传的功能` （通过webworker子进程来计算哈希）
+> `秒传的功能` （通过webworker子进程来计算哈希）
 
 ```js
 function calculateHash(partList:Part[]){
@@ -136,7 +162,7 @@ self.onmessage = async (event) => {
 
 ```
 
-#### 上传切片
+#### `上传切片`
 
 ```js
 // 上传切片
@@ -161,8 +187,6 @@ async function uploadParts(partList: Part[], filename: string) {
         message.error('上传失败或暂停')
     }
 }
-
-
 
 ```
 
@@ -204,20 +228,13 @@ function createRequests(partList: Part[], uploadList: Uploaded[], filename: stri
                 url: `/upload/${filename}/${part.chunk_name}/${part.loaded}`,
                 method: 'POST',
                 headers: { 'Content-Type': 'application/octet-stream' }, // 指定请求体的格式
-                setXHR: (xhr: XMLHttpRequest) => part.xhr = xhr,
+                setXHR: (xhr: XMLHttpRequest) => part.xhr = xhr, // 暂停需要xhr.abort()
                 onProgress: (event: ProgressEvent) => {
                     part.percent = Number(((part.loaded! + event.loaded) / part.chunk.size * 100).toFixed(2))
                     setPartList([...partList]);
                 },
                 data: part.chunk.slice(part.loaded) // 请求体
             }))
-
-        // return partList.map((part: Part) => request({
-        //     url: `/upload/${filename}/${part.chunk_name}`,
-        //     method: 'POST',
-        //     headers: { 'Content-Type': 'application/octet-stream' }, // 指定请求体的格式
-        //     data: part.chunk // 请求体
-        // }))
     }
 ```
 
@@ -344,5 +361,3 @@ app.get('/verify/:filename', async (req: Request, res: Response, _next: NextFunc
 
 
 # buffer blob 流 二进制 的区别 ？
-
-- File接口基于Blob,继承了blob的功能并将其扩展使其支持用户系统上的文件

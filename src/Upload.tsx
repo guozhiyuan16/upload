@@ -64,10 +64,11 @@ function Upload() {
     }
 
     async function handleUpload() {
+        // 校验文件是否选择
         if (!currentFile) {
             return message.error('你尚未选择文件');
         }
-        
+        // 校验文件类型和文件大小是否符合上传标准
         if (!allowUpload(currentFile)) {
             return 
         }
